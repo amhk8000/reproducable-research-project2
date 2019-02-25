@@ -1,0 +1,372 @@
+--
+title: "Storm Analysis"
+author: Aynalem Mekbib
+date: Feb 22, 2019
+output: html_document
+---
+
+Coursera - Reproducible Research - Project 2
+Aynalem Mekbib
+Tuesday, January 20, 2019
+Exploring the NOAA Storm Database
+
+## Synopsis
+This project analyzes the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database to determine the effects of weather events on US population and economy. It analyzes the top 10 weather events from 1950 to 2018 that had a major impact in the United States.
+
+
+## Introduction
+
+Storms and other severe weather events cause both public health and economic problems. Severe events can result in fatalities, injuries, crop and property damage. The prevention of such outcomes is a key concern. This project explores the U.S. National Oceanic and Atmospheric Administration's (NOAA) storm database. This database tracks characteristics of major storms and weather events in the United States, including the weather event type, when and where they occur, as well as estimates of any fatalities, injuries, and crop and property damage.
+
+## Data Processing
+Storm data for this project comes from NOAA database. Data downloaded includes weather events from 1950 to Nov 2017 and supporting documents include National Weather Service Storm Data Documentation and National Climatic Data Center Storm Events FAQ.
+
+```{r warning=FALSE, message=FALSE }
+library(knitr)
+library(sqldf)
+library(pdftools)
+library(kableExtra)
+library(tidyverse)
+library(gridExtra)
+library(proto)
+```
+
+##Data Processing
+Storm data is downloaded from the official web site of National Oceanic and Atmospheric Administration Website.
+```{r eval = TRUE }
+download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2","storms.csv.bz2")
+download.file("https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf","stormdoc.pdf", mode = "wb")
+```
+Download date <- `r date()` 
+
+Extract storm data
+```{r storm, echo=TRUE}
+ storm <- read.csv("Storms.csv.bz2", header = TRUE)
+```
+The storm data consists of a total of `r nrow(storm)` rows and `r ncol(storm)` columns.
+
+Extract storm documents and use
+Table 1 as the standard weather event names.
+
+```{r storminfo, eval=TRUE}
+ storminfo <- pdf_text("stormdoc.pdf")
+ storminfo <- strsplit(storminfo, "\n")
+ head(storminfo[[6]],40)
+ ```
+ 
+# Data Transformation
+Data with reported fatalities, injuries or crop or property damage is selected for this analysis. 
+
+```{r stormselect, echo=TRUE }
+  stormselect <- storm %>% 
+                filter(FATALITIES >  0 | INJURIES > 0 | PROPDMG > 0 | CROPDMG > 0) %>%
+              select(BGN_DATE, EVTYPE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP) %>%
+              droplevels()
+  str(stormselect)
+```
+
+Add a column for the year
+```{r}
+stormselect$YEAR <- as.numeric(format(as.Date(stormselect$BGN_DATE, "%m/%d/%Y %H :%M :%S"), "%Y"))
+```
+Descriptions of columns selected for this analysis:
+```{r eval=FALSE }
+   Column        Description   
+  BDN_DATE      Begin date   
+  EVTYPE	      Event type   
+  FATALITIES	  Fatalities attributable to the event   
+  INJURIES	    Injuries attributable to the event   
+  PROPDMG	      Property damage estimate (USD)     
+  PROPDMGEXP	  Magnitude of property damage Estimate   
+  CROPDMG	Crop  Crop damage estimate (USD)   
+  CROPDMGEXP	  Magnitude of crop damage estimate   
+  YEAR          Year of the event happened   
+```
+Create factors 
+```{r echo=TRUE }
+ stormselect$CROPDMGEXP <- factor(stormselect$CROPDMGEXP)
+ stormselect$PROPDMGEXP <- factor(stormselect$PROPDMGEXP)
+```               
+
+Display data
+```{r echo=TRUE }
+kable(head(stormselect,5), booktabs=TRUE) %>% 
+  kable_styling(latex_options="scale_down")
+
+```
+
+###Edit storm events
+Remove leading/trailing blanks and convert to upper case event names  
+Catagorize data into the 48  weather event types as defined on Table 1 above.
+For  no matching storm event, categorize it into 'other' group. 
+
+```{r}
+stormselect$EVTYPE <- as.character(stormselect$EVTYPE)
+stormselect$EVTYPE <- str_trim(stormselect$EVTYPE)
+stormselect$EVTYPE <- toupper(stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("ASTRONOMICA.*", "ASTRONOMICAL LOW TIDE", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("^AVALANC.*", "AVALANCHE", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub(".*BLIZZARD$|^BLIZ.*|BLOWING SNOW", "BLIZZARD", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^COASTA.*','COASTAL FLOOD', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('SNOW/COLD|^(.*BITTER.*|UNSEAS.*)\\sCOLD$|^(COLD|LOW)\\sTEMPERATURE$|^(COLD$|COLD.*)|^COOL.*', 'COLD/WIND CHILL', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('EXTENDED COLD|^COLD\\s(WAVE|TEMPERATURE|AND.*)|COLD/WINDS', 'COLD/WIND CHILL', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("^FOG.*", "DENSE FOG", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub(".*SLIDE$|.*SLUMP$|.*SLIDES$|^EROSIO.*|.*EROSION$|DAM BREAK|^MUD.*", "DEBRIS FLOW", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('DROUGHT.*HEAT$','DROUGHT', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('\\bDUST DEVIL WATERSPOUT\\b','DUST DEVIL', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^DUS.* WINDS$|.*DUST$','DUST STORM', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^EXT.*HEAT$|^HEAT WAVE.*|^RECOR.*HEAT$','EXCESSIVE HEAT', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^HYP.*|EXTREM.*CHILL$|^REC.*COLD$|EXTR.*COLD$','EXTREME COLD/WIND CHILL', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^FLAS.*FLOO(D|DING)$|^(RIV.*|FLOOD/FLASH/)FLOOD$|^FLOOD/FLA.*|^FLASH FLOOD.*','FLASH FLOOD', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^BREAKUP.*|^FLOODIN.*|\\b^FLOODS\\b|^FLOOD/^RUR.*FLOOD$|\\bHIGH WATER\\b|^SMA.*FLOOD$','FLOOD', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("^URBA.*|^MAJO.*|^(MINO.*|SNOWMELT).*FLOODING| ^FLOOD\\/RAI.*|^FLOOD\\s&\\sHEAV.*|^RIVE.*|RURAL.*", "FLOOD", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('.*FREEZING RAIN$','FREEZING FOG', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("^BLAC.*|^GLAZ.*|^FREEZ.*|^AGRICUL.*", "FREEZING FOG", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^FROS.*|DAMAGING FREEZE|HARD FREEZE|EARLY FROST','FROST/FREEZE', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("^HAIL.*|.*HAIL$", "HAIL", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("WARM WEATHER|^UNSEASONABLY WAR.*", "HEAT", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^EXC.*WETNESS$|^HEAVY RAI.*|^RAI.*|HVY RAIN|.*RAINFALL$|.*SHOWER$|.*PRECIPITATION$|^UNSE.*RAIN$|^MIX.*PRECIP$', "HEAVY RAIN", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^SNOW\\/.*|^SNOW ACCUM.*|^SNOW AND HEAV.*|^REC.*SNOW$|^HEAVY SNO.*','HEAVY SNOW', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^SNOW$|LAT.*SNOW$|LIGHT SNO.*|^HEAVY LAKE SNOW$|EXCESSIVE SNOW|^HEAVY.*SNO.*SHOWER$','HEAVY SNOW', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("HAZARDOUS SURF|^HEAVY SUR.*|HIGH SUR.*|HIGH WAVES|^HIGH$|^ROUGH SURF$", "HIGH SURF", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('WHIRLWIND|^WIND.*|^SNOW/HIGH WIND|^HIGH.*WIN(D|DS).*|^*NON.*(WIND$|DAMAGE$)','HIGH WIND', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("^HURRICANE.*|^HURR.|^TYPHOON", "HURRICANE", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('\\bFALLING SNOW/ICE\\b|^IC.*|^SNOW/IC.*|^SNOW AND IC.*|^SNOW/ IC.*','ICE STORM', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^SNOW.*SQUAL.*|^LAKE EFFEC.*','LAKE-EFFECT SNOW', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('LAKE FLOOD','LAKESHORE FLOOD', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^LIGHTN.*|^LIGHTING|^LIGNT.*','LIGHTNING', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^WIND AND WAVE','MARINE HIGH WIND', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^MARINE TSTM.*','MARINE THUNDERSTORM WIND', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("^RIP CURRE.*", "RIP CURRENT", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^SNOW/SL.*|SLEET/ICE STORM','SLEET', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^ROGU.|.*STORM SURGE$|^RAPID.*|.*SURGE\\/TIDE$|^TIDAL.*','STORM SURGE/TIDE', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('.*SWELLS$|DROWNING|.*TIDES$|^(ROUGH|HIGH|HEAVY).*SEAS$|^STORM.*WAVE$','STORM SURGE/TIDE', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^STRONG WINDS|^GUSTY.*|^DRY.*WINDS$|^MICRO.*|DOWNBURST|.*MICROBURST$|^GRADIENT.*|^STORM FORCE WINDS$','STRONG WIND', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("^THU.*|^SEVER.*|^TUNDER.*|^TST.*", "THUNDERSTORM WIND", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('.*TORNADO$|^TORN.*|.*LANDSPOUT$|^GUSTNADO','TORNADO', stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("^TROPICAL STOR.*", "TROPICAL STORM", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("^WATERSPOU.*", "WATERSPOUT", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub(".*FIR(E|ES)$", "WILDFIRE", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub("^WINTER STOR.*", "WINTER STORM", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^(HEAVY|WINT.*).MIX$', "WINTER WEATHER", stormselect$EVTYPE)
+stormselect$EVTYPE <- gsub('^OTHER|\\?|.*COUNTY$|^MARINE ACCIDENT|^MARINE MISHAP','OTHERS', stormselect$EVTYPE)
+```
+
+###Fatalities
+Find the top 10 weather events that caused the most fatalities.
+
+```{r}
+sql_string <- "select EVTYPE,
+                sum(fatalities) fatal
+                from stormselect
+                group by EVTYPE
+                order by fatal desc";
+stormfatal <- sqldf(sql_string,stringsAsFactors = FALSE);
+stormfataltop10 <- head(stormfatal,10)
+```
+###Injuries
+Find the top 10 weather events that caused the most injuries
+```{r}
+sql_string <- "select EVTYPE,
+              sum(injuries) injury
+              from stormselect
+              group by EVTYPE
+              order by injury desc";
+
+storminjury <- sqldf(sql_string,stringsAsFactors = FALSE);
+storminjurytop10 <- head(storminjury,10)
+```
+
+###Top 10 fatality for tornado
+```{r}
+sql_string <- "select YEAR,
+                sum(fatalities) TOTALFATAL
+                from stormselect
+                where EVTYPE = 'TORNADO'
+                group by YEAR
+                order by TOTALFATAL desc";
+
+stormfatalyear <- sqldf(sql_string,stringsAsFactors = FALSE);
+stormfatalyeartop10 <- head(stormfatalyear,10);
+
+```
+###Top 10 injury for tornado
+```{r}
+sql_string <- "select YEAR,
+                sum(injuries) TOTALINJURY
+                from stormselect
+                where EVTYPE = 'TORNADO'
+                group by YEAR
+                order by TOTALINJURY desc";
+
+storminjuryyear <- sqldf(sql_string,stringsAsFactors = FALSE);
+storminjuryyeartop10 <- head(storminjuryyear,10);
+
+```
+
+###Evaluate Crop damage
+Replace factors with multipliers.  
+B=1000000000, M=1000000, K=1000, ("" or "?" or "0"  = 1 )  
+
+```{r echo=TRUE }
+unique(levels(stormselect$CROPDMGEXP))
+```
+```{r echo=TRUE }
+stormselect[stormselect$CROPDMGEXP == '^B'] <- '1000000000'
+stormselect[stormselect$CROPDMGEXP == '^(m|M)'] <- '1000000'
+stormselect[stormselect$CROPDMGEXP == '^(K|k)'] <- '1000'
+stormselect[stormselect$CROPDMGEXP == '^($|?|0'] <- '1'
+stormselect$CROPDMGEXP <- as.numeric(stormselect$CROPDMGEXP)
+stormselect$CROPDMGEXP[is.na(stormselect$CROPDMGEXP)]=0;
+```
+Get top 10 crop damages 
+```{r echo=TRUE}
+sql_string <- "select  EVTYPE,
+                  sum(CROPDMG * CROPDMGEXP) TOTALCROPDMG
+                  from stormselect
+                  group by EVTYPE
+                  order by TOTALCROPDMG desc";
+stormselectcropdmg <- sqldf(sql_string,stringsAsFactors = FALSE);   
+stormselectcropdmgtop10 <- head(stormselectcropdmg,10)
+stormselectcropdmgtop10
+```
+```{r echo=TRUE }
+sql_string <- "select YEAR,
+                sum(CROPDMG * CROPDMGEXP) TOTALCROPDMG
+                from stormselect
+                where EVTYPE = 'TORNADO'
+                group by YEAR
+                order by TOTALCROPDMG desc";
+
+stormcropdmgyear <- sqldf(sql_string,stringsAsFactors = FALSE);
+stormcropdmgyeartop10 <- head(stormcropdmgyear,10);
+```
+
+###Property damage
+Identify factors  
+B=1000000000, M=1000000, K=1000, H=100, 
+2 = 100, 3=1000, 4=10000, 5=100000, 6=1000000, 7=10000000,($,+,-,0) = 1 
+
+```{r echo=TRUE }
+unique(toupper(levels(stormselect$PROPDMGEXP)))
+```
+
+Replace factors with multipliers
+```{r}
+stormselect[stormselect$PROPDMGEXP == '^B'] <- '1000000000';
+stormselect[stormselect$PROPDMGEXP == '^7'] <- '10000000';
+stormselect[stormselect$PROPDMGEXP == '^(m|M|6)'] <- '1000000';
+stormselect[stormselect$PROPDMGEXP == '^5'] <- '100000';
+stormselect[stormselect$PROPDMGEXP == '^4'] <- '10000';
+stormselect[stormselect$PROPDMGEXP == '^(k|K|3)'] <- '1000';
+stormselect[stormselect$PROPDMGEXP == '^(h|H|2)'] <- '100';
+stormselect[stormselect$PROPDMGEXP == '^($|+|-|0)'] <- '1';
+stormselect$PROPDMGEXP <- as.numeric(stormselect$PROPDMGEXP)
+stormselect$PROPDMGEXP[is.na(stormselect$PROPDMGEXP)]=0
+```
+
+Get top 10 property damages 
+```{r echo=TRUE }
+sql_string <- "select EVTYPE,
+              sum(PROPDMG * PROPDMGEXP) TOTALPROPDMG
+              from stormselect
+              group by EVTYPE
+              order by TOTALPROPDMG desc";
+stormselectpropdmg <- sqldf(sql_string,stringsAsFactors = FALSE);   
+stormselectpropdmgtop10 <- head(stormselectpropdmg,10)
+stormselectpropdmgtop10
+```
+
+Top 10 total property damage 
+```{r echo=TRUE }
+sql_string <- "select YEAR,
+                sum(PROPDMG * PROPDMGEXP) TOTALPROPDMG
+                from stormselect
+                where EVTYPE = 'TORNADO'
+                group by YEAR
+                order by TOTALPROPDMG desc";
+
+stormpropdmgyear <- sqldf(sql_string,stringsAsFactors = FALSE);
+stormpropdmgyeartop10 <- head(stormpropdmgyear,10);
+```
+##Results
+Results are analyzed using the top 10 severe climate events.  
+
+
+###Across the United States, which types of events (as indicated in the EVTYPE variable) are most harmful with respect to population health ?  
+The graph below shows the top 10 weather events responsible for the most human injuries and fatalities.
+
+```{r} 
+p <- ggplot(stormfataltop10, aes(x = reorder(EVTYPE,-fatal), y = fatal)) + 
+    geom_bar(stat="identity") +
+  theme_classic() + 
+  labs(x="Event", y = "Fatality") +
+  ggtitle("Top 10 Storms for Fatality") +
+  theme(axis.text.x = element_text(angle = 90, size=4, hjust = 1))   
+
+q <- ggplot(data=storminjurytop10, aes(x = reorder(EVTYPE, -injury), y = injury)) + 
+  geom_bar(stat= "identity",fill = "blue") +
+  theme_classic() +  
+  labs(x="Event", y = "Injuries") +
+  ggtitle("Top 10 Storms for Injury") +
+  theme(axis.text.x = element_text(angle = 90, size=4, hjust = 1))   
+
+u <- ggplot(data=stormfatalyeartop10, aes(x = reorder(YEAR, -TOTALFATAL), y = TOTALFATAL)) + 
+  geom_bar(stat= "identity",fill = "green") +
+  theme_classic() +  
+  labs(x="Year", y = "Fatality") +
+  ggtitle("Top 10 years Fatality")  +
+  theme(axis.text.x = element_text(angle = 90, size=4, hjust = 1)) 
+v <- ggplot(data=storminjuryyeartop10, aes(x = reorder(YEAR, -TOTALINJURY), y = TOTALINJURY)) + 
+  geom_bar(stat= "identity",fill = "black") +
+  theme_classic() +  
+  labs(x="Year", y = "Injury") +
+  ggtitle("Top 10 years Injury")  +
+  theme(axis.text.x = element_text(angle = 90, size=4, hjust = 1)) 
+s <- grid.arrange(p,q,u,v, nrow=2, top ="Top 10 Severe Weather Events, 1950-2011")
+print(s)
+```
+
+###Across the United States, which types of events have the greatest economic consequences ?  
+The graph below shows the top 10 weather events responsible for property and crop daamages.  
+
+
+```{r}                
+p <- ggplot(data=stormselectcropdmgtop10, aes(x=reorder(EVTYPE, -TOTALCROPDMG), y = TOTALCROPDMG)) +
+     geom_bar(stat="identity", fill="blue") +
+     theme_classic() +
+     labs(x="Event Type", y="USD $") +
+     ggtitle("Crop  Damage USD$(millions") +
+     theme(axis.text.x = element_text(angle = 90, size=6, hjust = 1))    
+
+q <- ggplot(data=stormselectpropdmgtop10, aes(x=reorder(EVTYPE, -TOTALPROPDMG), y=TOTALPROPDMG)) + 
+    geom_bar(stat="identity", fill="red") +
+    theme_classic() +
+    labs(x="Event Type", y="USD $") +
+    ggtitle("Property  Damage USD$(millions)") +
+    theme(axis.text.x = element_text(angle = 90, size=6, hjust = 1)) 
+u <- ggplot(data=stormcropdmgyeartop10, aes(x = reorder(YEAR, -TOTALCROPDMG), y = TOTALCROPDMG)) + 
+  geom_bar(stat= "identity",fill = "black") +
+  theme_classic() +  
+  labs(x="Year", y = "USD $") +
+  ggtitle("Top 10 years of Crop Damage")  +
+  theme(axis.text.x = element_text(angle = 90, size=4, hjust = 1)) 
+v <- ggplot(data=stormpropdmgyeartop10, aes(x = reorder(YEAR, -TOTALPROPDMG), y = TOTALPROPDMG)) + 
+  geom_bar(stat= "identity",fill = "black") +
+  theme_classic() +  
+  labs(x="Year", y = "USD$") +
+  ggtitle("Top 10 years of Property Damage")  +
+  theme(axis.text.x = element_text(angle = 90, size=4, hjust = 1)) 
+s <- grid.arrange(p,q,u,v,nrow=2, top ="Top 10 Severe Weather Events, 1950-2011")
+print(s)
+```  
+
+#Conclusion  
+Tornado caused the highest fatalities and injuries. Excesshive hear is the second most dangerous storm event  for human fatalities. The worst fatalities occured in 2011.
+
+Hail caused the worst crop damage while Tornado was the worst for property damage.
+2011 was the worst year for crop and property damages.
+
+
+
+
